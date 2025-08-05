@@ -5,6 +5,7 @@ import json
 import threading
 import os
 import uuid
+import zipfile
 from auth import create_secure_cookie, decode_secure_cookie, generate_otp, parse_cookie_header
 import firebase_admin
 from datetime import datetime
@@ -22,13 +23,14 @@ from schema.chat_schema import (AddUserToRoom, RoomUser,
                                 RoomUpdatePayload
                                 )
 from cachetools import TTLCache
+from dotenv import load_dotenv
+# from firebase_key import get_firebase_key
 
-# Initialize Firebase
+load_dotenv()
+
 cred = credentials.Certificate("firebase_key.json")
 firebase_admin.initialize_app(cred)
-SESSION_COOKIE_NAME = "super-secret-key"
-
-print(os.path.abspath("firebase_key.json"),'pathhh')
+SESSION_COOKIE_NAME = os.getenv('SESSION_COOKIE_NAME')
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath("firebase_key.json")
 # Initialize Firestore DB
 sync_db = firestore.client()
