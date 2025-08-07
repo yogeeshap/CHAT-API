@@ -30,7 +30,7 @@ load_dotenv()
 
 cred = credentials.Certificate("firebase_key.json")
 firebase_admin.initialize_app(cred)
-SESSION_COOKIE_NAME = os.getenv('SESSION_COOKIE_NAME')
+SESSION_COOKIE_NAME = os.getenv('SESSION_COOKIE_NAME','wee08b1c52-1d42-harate-4ff7-ae2f-e74b23dd0ced')
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath("firebase_key.json")
 # Initialize Firestore DB
 sync_db = firestore.client()
@@ -42,7 +42,7 @@ app = FastAPI()
 # Allow CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv('FRONT_END_URL')],  # Replace * with React frontend origin in production
+    allow_origins=[os.getenv('FRONT_END_URL','https://chat-app-frontend-wxa0.onrender.com')],  # Replace * with React frontend origin in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
