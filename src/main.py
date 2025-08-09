@@ -2,7 +2,6 @@ import asyncio
 import base64
 from collections import defaultdict
 import json
-import tempfile
 import threading
 import os
 import uuid
@@ -29,33 +28,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
-def set_google_credentials_from_env():
-    firebase_json = os.getenv("FIREBASE_CREDENTIALS")
-    firebase_dict = json.loads(firebase_json)
-    cred = credentials.Certificate(firebase_dict)
-    firebase_admin.initialize_app(cred)
-    if not firebase_json:
-        raise RuntimeError("FIREBASE_CREDENTIALS env var not set!")
-
-    # Write the JSON to a temporary secure file
-    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as temp_file:
-        json.dump(firebase_dict, temp_file)
-        temp_file_path = temp_file.name
-
-    # Set the GOOGLE_APPLICATION_CREDENTIALS to point to the temp file
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_file_path
-    
-
-# Call this before initializing any Google/Firebase services
-set_google_credentials_from_env()
+cred = credentials.Certificate("firebase_key.json")
+firebase_admin.initialize_app(cred)
 SESSION_COOKIE_NAME = os.getenv('SESSION_COOKIE_NAME')
-
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath("firebase_key.json")
+# Initialize Firestore DB
 sync_db = firestore.client()
 async_db = firestore_async.AsyncClient()
 
 
-app = FastAPI(debug=True)
+app = FastAPI()
 
 # Allow CORS for frontend
 app.add_middleware(
@@ -186,9 +168,8 @@ async def login(response: Response, user:UserModel):
 
     user_data = None
     user_id = None
-    
+
     user_query = async_db.collection("User").where("email", "==", user.email)
-    
     async for doc in user_query.stream():
         user_data = doc.to_dict()
         user_id = doc.id
