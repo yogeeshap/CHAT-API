@@ -45,10 +45,11 @@ def set_google_credentials_from_env():
 
     # Set the GOOGLE_APPLICATION_CREDENTIALS to point to the temp file
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_file_path
-    SESSION_COOKIE_NAME = os.getenv('SESSION_COOKIE_NAME')
+    
 
 # Call this before initializing any Google/Firebase services
 set_google_credentials_from_env()
+SESSION_COOKIE_NAME = os.getenv('SESSION_COOKIE_NAME')
 
 sync_db = firestore.client()
 async_db = firestore_async.AsyncClient()
