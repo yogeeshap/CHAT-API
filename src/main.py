@@ -2,6 +2,7 @@ import asyncio
 import base64
 from collections import defaultdict
 import json
+import tempfile
 import threading
 import os
 import uuid
@@ -28,11 +29,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-cred = credentials.Certificate("firebase_key.json")
-firebase_admin.initialize_app(cred)
-SESSION_COOKIE_NAME = os.getenv('SESSION_COOKIE_NAME','wee08b1c52-1d42-harate-4ff7-ae2f-e74b23dd0ced')
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath("firebase_key.json")
-# Initialize Firestore DB
+
+def set_google_credentials_from_env():
+    firebase_json = os.getenv("FIREBASE_CREDENTIALS")
+    firebase_dict = json.loads(firebase_json)
+    cred = credentials.Certificate(firebase_dict)
+    firebase_admin.initialize_app(cred)
+    if not firebase_json:
+        raise RuntimeError("FIREBASE_CREDENTIALS env var not set!")
+
+    # Write the JSON to a temporary secure file
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".json") as temp_file:
+        json.dump(firebase_dict, temp_file)
+        temp_file_path = temp_file.name
+
+    # Set the GOOGLE_APPLICATION_CREDENTIALS to point to the temp file
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_file_path
+    SESSION_COOKIE_NAME = os.getenv('SESSION_COOKIE_NAME')
+
+# Call this before initializing any Google/Firebase services
+set_google_credentials_from_env()
+
 sync_db = firestore.client()
 async_db = firestore_async.AsyncClient()
 
@@ -42,7 +59,7 @@ app = FastAPI()
 # Allow CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv('FRONT_END_URL','https://chat-app-frontend-wxa0.onrender.com')],  # Replace * with React frontend origin in production
+    allow_origins=[os.getenv('FRONT_END_URL')],  # Replace * with React frontend origin in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -168,8 +185,9 @@ async def login(response: Response, user:UserModel):
 
     user_data = None
     user_id = None
-
+    breakpoint()
     user_query = async_db.collection("User").where("email", "==", user.email)
+    breakpoint()
     async for doc in user_query.stream():
         user_data = doc.to_dict()
         user_id = doc.id
