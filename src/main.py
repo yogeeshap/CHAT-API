@@ -54,7 +54,7 @@ sync_db = firestore.client()
 async_db = firestore_async.AsyncClient()
 
 
-app = FastAPI()
+app = FastAPI(debug=True)
 
 # Allow CORS for frontend
 app.add_middleware(
