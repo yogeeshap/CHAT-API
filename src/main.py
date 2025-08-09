@@ -27,11 +27,11 @@ from dotenv import load_dotenv
 # from firebase_key import get_firebase_key
 
 load_dotenv()
-
-cred = credentials.Certificate("firebase_key.json")
+FIREBASE_CREDENTIAL_PATH = "/etc/secrets/firebase_key.json"
+cred = credentials.Certificate(FIREBASE_CREDENTIAL_PATH)
 firebase_admin.initialize_app(cred)
 SESSION_COOKIE_NAME = os.getenv('SESSION_COOKIE_NAME')
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath("firebase_key.json")
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath(FIREBASE_CREDENTIAL_PATH)
 # Initialize Firestore DB
 sync_db = firestore.client()
 async_db = firestore_async.AsyncClient()
