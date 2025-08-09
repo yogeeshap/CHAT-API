@@ -186,9 +186,9 @@ async def login(response: Response, user:UserModel):
 
     user_data = None
     user_id = None
-    breakpoint()
+    
     user_query = async_db.collection("User").where("email", "==", user.email)
-    breakpoint()
+    
     async for doc in user_query.stream():
         user_data = doc.to_dict()
         user_id = doc.id
