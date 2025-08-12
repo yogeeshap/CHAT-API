@@ -4,6 +4,7 @@ from collections import defaultdict
 import json
 import threading
 import os
+from datetime import datetime
 import uuid
 import zipfile
 from auth import create_secure_cookie, decode_secure_cookie, generate_otp, parse_cookie_header
@@ -368,6 +369,16 @@ async def add_user(user_obj: UserModel):
     return {"message": "User added", "id": new_user_ref.id}
 
 
+async def get_user_info(user_id:str):
+    user_ref = async_db.collection("User").document(user_id)
+    user_doc = await user_ref.get()
+    user_data = user_doc.to_dict()
+
+    return {'user_id':user_ref.id,
+                 'username':user_data.get('username'),
+                 'email':user_data.get('email')}
+    
+
 async def add_mbr_to_room(room_member:RoomUserMap):
   
     user_ref = async_db.collection("User").document(room_member.user_id)
@@ -485,15 +496,14 @@ async def sender_loop(websocket: WebSocket, room_id: str):
         connections[room_id].discard(websocket)
         user_ids[room_id].pop(websocket, None)
 
-
 def firestore_listener(room_id: str):
     stop_flag = stop_flags[room_id]
 
     def on_snapshot(col_snapshot, changes, read_time):
-        for change in changes:
-            if stop_flag.is_set():
-                return
+        if stop_flag.is_set():
+            return
 
+        for change in changes:
             if change.type.name in ('ADDED', 'MODIFIED'):
                 doc = change.document.to_dict()
                 doc["id"] = change.document.id
@@ -508,30 +518,34 @@ def firestore_listener(room_id: str):
                 })
 
                 async def enqueue():
-                    for ws, queue in ws_queues[room_id].copy().items():
+                    for ws, queue in ws_queues.get(room_id, {}).copy().items():
                         try:
                             queue.put_nowait(message)
                         except asyncio.QueueFull:
                             print(f"[Queue Full] Skipping message for {ws.client}")
+                            ws_queues[room_id].pop(ws, None)
 
                 if main_event_loop and not main_event_loop.is_closed():
                     asyncio.run_coroutine_threadsafe(enqueue(), main_event_loop)
 
-    print(f"Starting Firestore listener for room: {room_id}")
+    print(f"📡 Listener started for room: {room_id}")
     ref = sync_db.collection("Post").where("room_id", "==", room_id)
     listener = ref.on_snapshot(on_snapshot)
 
     stop_flag.wait()
+    print(f"🛑 Listener stopping for room: {room_id}")
     listener.unsubscribe()
 
 
 @app.websocket("/ws/chat/{room_id}/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     await websocket.accept()
-
     if room_id not in stop_flags:
         stop_flags[room_id] = threading.Event()
-        threading.Thread(target=firestore_listener, args=(room_id,), daemon=True).start()
+        thread = threading.Thread(target=firestore_listener, args=(room_id,), daemon=True)
+        thread.start()
+        listeners[room_id] = thread  # ✅ Save the thread
+
 
     connections[room_id].add(websocket)
     ws_queues[room_id][websocket] = asyncio.Queue(maxsize=100)
@@ -542,8 +556,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
     sender = asyncio.create_task(sender_loop(websocket, room_id))
 
     async def get_initial():
-        messages_ref = async_db.collection("Post").where("room_id", "==", room_id)
-        docs = messages_ref.order_by("timestamp", direction=firestore_async.Query.DESCENDING).limit(50).stream()
+        messages_ref = (
+            async_db.collection("Post")
+            .where("room_id", "==", room_id)
+            .order_by("timestamp", direction=firestore_async.Query.DESCENDING)
+            .limit(10)
+        )
+        docs = messages_ref.stream()
 
         messages = []
         async for doc in docs:
@@ -555,18 +574,30 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
                 "edited_at": doc_dict.get("edited_at") and doc_dict["edited_at"].isoformat()
             })
 
-        return messages
+        # 🔁 Reverse so frontend displays messages oldest → newest
+        return list(reversed(messages))
 
+    
 
-    async def get_older(start_timestamp):
+    async def get_older(start_timestamp: str):
         ts = datetime.fromisoformat(start_timestamp)
+        print(start_timestamp, 'start_timestamp')
         messages_ref = async_db.collection("Post").where("room_id", "==", room_id)
-        docs = messages_ref.order_by("timestamp").end_before({"timestamp": ts}).limit_to_last(50).stream()
-        return [doc.to_dict() | {
-                    "id": doc.id,
-                    "timestamp": doc.to_dict()["timestamp"].isoformat(),
-                    "edited_at": doc.to_dict().get("edited_at") and doc.to_dict()["edited_at"].isoformat()
-                } for doc in docs]
+
+        query = messages_ref.order_by("timestamp", direction=firestore_async.Query.ASCENDING) \
+                            .end_before([ts]) \
+                            .limit_to_last(10)
+
+        docs = await query.get()
+
+        results = [{
+            **doc.to_dict(),
+            "id": doc.id,
+            "timestamp": doc.to_dict()["timestamp"].isoformat(),
+            "edited_at": (doc.to_dict().get("edited_at") and doc.to_dict()["edited_at"].isoformat())
+        } for doc in docs]
+
+        return results
 
     # Send initial history
     history = await get_initial()
@@ -575,8 +606,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
 
     try:
         while True:
+
+            
             data = await websocket.receive_text()
             data_json = json.loads(data)
+
+            print(stop_flags,'stop_flags',room_id)
      
             if data_json["type"] == "get_initial":
                 history = await get_initial()
@@ -584,6 +619,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
 
             elif data_json["type"] == "load_older":
                 start_ts = data_json.get("start_timestamp")
+                print(start_ts,'start_ts')
                 if start_ts:
                     older = await get_older(start_ts)
                     await websocket.send_json({"type": "older_messages", "messages": older})
@@ -598,6 +634,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
                 image_width = data_json.get("image_width",'')
 
                 msg_ref = async_db.collection("Post").document()
+
                 await msg_ref.set({
                     "author_id": user_id,
                     "content": content,
@@ -645,10 +682,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
             elif data_json["type"] == "typing":
                 is_typing = data_json.get("is_typing", False)
                 # Broadcast typing directly to clients (not via Firestore)
+                user_obj = await get_user_info(user_id)
+
                 message = {
                     "type": "typing",
                     "user_id": user_id,
-                    "is_typing": is_typing
+                    "is_typing": is_typing,
+                    "username" : user_obj.get('username')
                 }
                 dead = []
                 for ws in connections.get(room_id, set()).copy():
@@ -720,10 +760,16 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, user_id: str):
                     user_ids[room_id].pop(ws, None)
                     
         if len(connections[room_id]) == 0:
+            print(f"🧹 Cleaning up room: {room_id}")
             stop_flags[room_id].set()
-            listeners[room_id].join()
-            del listeners[room_id]
+
+            if room_id in listeners:
+                listeners[room_id].join()
+                del listeners[room_id]
+
             del stop_flags[room_id]
             del connections[room_id]
+            ws_queues.pop(room_id, None)
             user_ids.pop(room_id, None)
             room_hosts.pop(room_id, None)
+
