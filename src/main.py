@@ -39,7 +39,7 @@ async_db = firestore_async.AsyncClient()
 
 
 app = FastAPI(debug=True)
-ALLOWED_HOST = ['https://chat-app-frontend-wxa0.onrender.com','https://localhost:5173']
+ALLOWED_HOST = ['https://weharate.onrender.com','https://localhost:5173']
 # Allow CORS for frontend
 app.add_middleware(
     CORSMiddleware,

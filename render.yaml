@@ -4,6 +4,7 @@ services:
     env: docker
     plan: free
     branch: main
+    region: Singapore
     dockerfilePath: Dockerfile
     dockerContext: .
     autoDeploy: true
