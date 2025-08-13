@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: chat-app-backend
+    name: weharatebe
     env: docker
     plan: free
     branch: main
